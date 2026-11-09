@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>로또 흐름 생성기</title>
-<meta name="description" content="직전 회차와 비슷했던 과거 사례의 다음 회차 번호를 통계로 환산해 번호를 뽑아 주는 재미용 생성기">
+<meta name="description" content="여러 알고리즘을 최근 회차에 먼저 적용해 보고, 실제 번호를 가장 잘 맞힌 알고리즘으로 번호를 뽑아 주는 재미용 생성기">
 <meta name="theme-color" content="#1f6feb">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
@@ -62,10 +62,17 @@ select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); ba
 .case .ep { color: var(--muted); min-width: 64px; }
 .case .arrow { color: var(--muted); }
 .case .sim { margin-left: auto; color: var(--muted); font-size: .8rem; }
-.chart { display: grid; grid-template-columns: repeat(45, 1fr); align-items: end; gap: 2px; height: 120px; }
+.algo { padding: 8px 0; border-top: 1px solid var(--line); font-size: .9rem; display: flex; gap: 8px; align-items: baseline; }
+.algo:first-child { border-top: 0; }
+.algo .rk { width: 18px; flex: none; color: var(--muted); font-weight: 700; }
+.algo .nm { font-weight: 600; }
+.algo .sc { margin-left: auto; color: var(--muted); white-space: nowrap; }
+.algo.best .nm, .algo.best .rk { color: var(--accent); }
+.hit { color: var(--accent); font-weight: 700; }
+.chart { display: grid; grid-template-columns: repeat(45, minmax(0, 1fr)); align-items: end; gap: 2px; height: 120px; }
 .chart div { background: var(--bar); border-radius: 2px 2px 0 0; min-height: 2px; }
 .chart div.top { background: var(--bar-top); }
-.axis { display: grid; grid-template-columns: repeat(45, 1fr); gap: 2px; font-size: 9px; color: var(--muted); text-align: center; }
+.axis { display: grid; grid-template-columns: repeat(45, minmax(0, 1fr)); gap: 2px; font-size: 9px; color: var(--muted); text-align: center; }
 .axis span:not(:nth-child(5n)):not(:first-child) { visibility: hidden; }
 .muted { color: var(--muted); font-size: .85rem; }
 .stat { font-size: 1.6rem; font-weight: 700; }
@@ -98,21 +105,29 @@ details summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
   </section>
 
   <section class="card">
-    <h2>가장 비슷했던 과거 사례</h2>
-    <p class="muted" style="margin-top:-6px">기준 회차와 닮은 회차 → 그다음 회차에 나온 번호</p>
-    <div id="cases"></div>
+    <h2>알고리즘 고르기</h2>
+    <p class="muted" style="margin-top:-6px">기준 회차 직전 몇 번 동안, 각 알고리즘을 적용해 뽑은 번호가 실제 다음 회차와 얼마나 맞았는지 비교합니다. 1등 알고리즘으로 번호를 뽑습니다.</p>
+    <div class="row" style="margin-bottom:10px">
+      <span class="muted">비교할 횟수</span>
+      <div class="seg" id="winSeg" role="group" aria-label="비교할 횟수"></div>
+    </div>
+    <div id="ranking"></div>
+    <details style="margin-top:10px">
+      <summary>1등 알고리즘의 회차별 성적</summary>
+      <div id="hist" style="margin-top:8px"></div>
+    </details>
   </section>
 
   <section class="card">
     <h2>번호별 점수</h2>
-    <p class="muted" style="margin-top:-6px">비슷한 사례의 다음 회차에 얼마나 나왔는지(가중치 반영). 진한 막대가 상위 6개.</p>
+    <p class="muted" style="margin-top:-6px" id="chartNote"></p>
     <div class="chart" id="chart"></div>
     <div class="axis" id="axis"></div>
   </section>
 
   <section class="card">
     <h2>과거 검증</h2>
-    <p class="muted" style="margin-top:-6px">200회부터 매 회차를 기준으로 이 방식의 상위 6개를 뽑았다면, 실제 다음 회차와 평균 몇 개가 맞았을까?</p>
+    <p class="muted" style="margin-top:-6px">200회부터 매 회차마다 “직전 몇 번 성적 1등 알고리즘”의 상위 6개를 뽑았다면, 실제 다음 회차와 평균 몇 개가 맞았을까?</p>
     <button class="btn ghost" id="btBtn">검증 돌리기</button>
     <div id="btOut"></div>
   </section>
@@ -120,10 +135,15 @@ details summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
   <details>
     <summary>계산 방식</summary>
     <p class="muted">
-      1회부터 기준 회차까지 모든 “직전 회차 → 다음 회차” 쌍을 봅니다. 직전 회차가 기준 회차와 얼마나 닮았는지 점수를 매깁니다
-      (같은 번호 1개당 3점, ±1 인접 번호 0.5점, 홀짝 구성 같으면 1점, 저(1~22)·고(23~45) 구성 같으면 1점, 번호 합이 가까울수록 최대 1점).
-      이 점수의 제곱을 가중치로 삼아 다음 회차에 나온 번호들에 더하면 번호별 점수가 됩니다.
-      게임은 이 점수에 비례해 무작위로 뽑고, 여러 게임이면 앞 게임과 번호가 덜 겹치도록 조정합니다.
+      후보 알고리즘은 13개이고, 모두 기준 회차를 포함한 최근 최대 3개 회차를 입력으로 씁니다.
+      닮은 흐름(최근 1~3회와 닮았던 과거 구간의 다음 회차 번호), 재등장(최근 번호와 ±1 이웃),
+      쉬어간 번호(최근에 안 나온 번호), 번호 이동(역대 “이 번호 다음엔 저 번호” 횟수), 전체 빈도(비교용)입니다.
+    </p>
+    <p class="muted">
+      예를 들어 비교할 횟수가 2면, 기준이 4회일 때 각 알고리즘을 2회까지의 데이터로 돌려 3회를 맞혀 보고,
+      3회까지의 데이터로 돌려 4회를 맞혀 봅니다. 두 번의 평균 성적이 가장 좋은 알고리즘을 4회까지의 데이터에 적용해 5회 번호를 냅니다.
+      성적은 실제 당첨번호 6개에 그 알고리즘이 준 확률을 합한 값(기대 일치 개수)이고, 무작위는 0.8개입니다.
+      게임은 1등 알고리즘의 번호별 확률에 비례해 뽑고, 여러 게임이면 앞 게임과 번호가 덜 겹치도록 조정합니다.
     </p>
   </details>
 
@@ -131,60 +151,19 @@ details summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 </main>
 
 <script src="lotto_data.js"></script>
+<script src="engine.js"></script>
 <script>
 const D = window.LOTTO.map(r => ({ e: r[0], d: r[1], n: r.slice(2, 8), b: r[8] }));
+const E = LottoEngine.buildEngine(D);
 const $ = id => document.getElementById(id);
 const fmtDate = s => `${s.slice(0, 4)}.${s.slice(4, 6)}.${s.slice(6)}`;
 const colorOf = n => n <= 10 ? 'c1' : n <= 20 ? 'c2' : n <= 30 ? 'c3' : n <= 40 ? 'c4' : 'c5';
 const ball = (n, sm) => `<span class="ball ${colorOf(n)}${sm ? ' sm' : ''}">${n}</span>`;
 const balls = (ns, sm) => ns.map(n => ball(n, sm)).join('');
+const WINS = [1, 2, 3, 5, 10];
 
-const feats = ns => ({
-  set: new Set(ns),
-  sum: ns.reduce((a, b) => a + b, 0),
-  odd: ns.filter(x => x % 2).length,
-  low: ns.filter(x => x <= 22).length,
-});
-const F = D.map(r => feats(r.n));
-
-function similarity(a, b) {
-  let ov = 0, near = 0;
-  for (const x of a.set) {
-    if (b.set.has(x)) ov++;
-    else if (b.set.has(x - 1) || b.set.has(x + 1)) near++;
-  }
-  const sim = 3 * ov + 0.5 * near
-    + (a.odd === b.odd ? 1 : 0)
-    + (a.low === b.low ? 1 : 0)
-    + Math.max(0, 1 - Math.abs(a.sum - b.sum) / 60);
-  return { sim, ov };
-}
-
-// baseIdx 회차를 기준으로, 그 회차까지 알려진 데이터만으로 번호별 점수 계산
-function analyze(baseIdx, keepCases) {
-  const base = F[baseIdx];
-  const score = new Array(46).fill(0);
-  const cases = [];
-  let total = 0;
-  for (let i = 0; i < baseIdx; i++) {
-    const { sim, ov } = similarity(F[i], base);
-    const w = sim * sim;
-    total += w;
-    for (const x of D[i + 1].n) score[x] += w;
-    if (keepCases) cases.push({ i, sim, ov });
-  }
-  const smooth = total * 6 / 45 * 0.05;
-  for (let x = 1; x <= 45; x++) score[x] += smooth;
-  if (keepCases) cases.sort((a, b) => b.sim - a.sim);
-  return { score, cases: keepCases ? cases.slice(0, 5) : null };
-}
-
-function topN(score, k) {
-  return [...Array(45).keys()].map(i => i + 1).sort((a, b) => score[b] - score[a]).slice(0, k);
-}
-
-function pickGame(score, used) {
-  const w = score.map((s, x) => x === 0 ? 0 : s * Math.pow(0.5, used[x] || 0));
+function pickGame(p, used) {
+  const w = [...p].map((s, x) => x === 0 ? 0 : s * Math.pow(0.5, used[x] || 0));
   const out = [];
   for (let k = 0; k < 6; k++) {
     let sum = 0;
@@ -200,7 +179,7 @@ function pickGame(score, used) {
   return out.sort((a, b) => a - b);
 }
 
-let state = { baseIdx: D.length - 1, count: 5, result: null };
+let state = { baseIdx: D.length - 1, count: 5, win: 3, best: null };
 
 function render() {
   const base = D[state.baseIdx];
@@ -210,81 +189,96 @@ function render() {
   const nextReal = D[state.baseIdx + 1];
   $('genTitle').textContent = `${nextE}회 번호 생성` + (nextReal ? ' (이미 추첨된 회차)' : '');
 
-  state.result = analyze(state.baseIdx, true);
-  const { score, cases } = state.result;
+  const ranking = E.rank(state.baseIdx, state.win);
+  const best = ranking[0];
+  state.best = best;
+  const realHit = c => nextReal ? E.top6(E.probs(c, state.baseIdx)).filter(x => nextReal.n.includes(x)).length : null;
+  $('ranking').innerHTML = ranking.slice(0, 5).map((r, i) => `
+    <div class="algo${i === 0 ? ' best' : ''}">
+      <span class="rk">${i + 1}</span>
+      <span><span class="nm">${r.cand.name}</span><br><span class="muted">${r.cand.desc}</span></span>
+      <span class="sc">${r.avg.toFixed(2)}개${nextReal ? ` · 실제 ${realHit(r.c)}개` : ''}</span>
+    </div>`).join('') +
+    `<p class="muted">숫자는 직전 ${best.n}번의 평균 기대 일치 개수 (무작위 0.80개)${nextReal ? ', “실제”는 이 알고리즘 상위 6개가 ' + nextReal.e + '회와 맞은 개수' : ''}.</p>`;
 
-  $('cases').innerHTML = cases.map(c => `
+  $('hist').innerHTML = E.history(state.baseIdx, state.win, best.c).reverse().map(h => `
     <div class="case">
-      <span class="ep">${D[c.i].e}회</span><span class="balls">${balls(D[c.i].n, true)}</span>
-      <span class="arrow">→ ${D[c.i + 1].e}회</span><span class="balls">${balls(D[c.i + 1].n, true)}</span>
-      <span class="sim">겹침 ${c.ov}개 · 유사도 ${c.sim.toFixed(1)}</span>
+      <span class="ep">${D[h.from].e}회까지 →</span><span class="balls">${balls(h.pick, true)}</span>
+      <span class="arrow">실제 ${D[h.to].e}회</span><span class="balls">${balls(h.real, true)}</span>
+      <span class="sim"><span class="hit">${h.hit}개</span> 일치</span>
     </div>`).join('');
 
-  const top = new Set(topN(score, 6));
-  const max = Math.max(...score.slice(1));
-  const min = Math.min(...score.slice(1));
-  $('chart').innerHTML = score.slice(1).map((s, i) =>
-    `<div class="${top.has(i + 1) ? 'top' : ''}" style="height:${8 + 92 * (s - min) / (max - min || 1)}%" title="${i + 1}번: ${(s / max * 100).toFixed(0)}"></div>`).join('');
+  const p = E.probs(best.c, state.baseIdx);
+  const top = new Set(E.top6(p));
+  const vals = [...p].slice(1);
+  const max = Math.max(...vals), min = Math.min(...vals);
+  $('chartNote').textContent = `1등 알고리즘 “${best.cand.name}”이 매긴 번호별 확률. 진한 막대가 상위 6개.`;
+  $('chart').innerHTML = vals.map((s, i) =>
+    `<div class="${top.has(i + 1) ? 'top' : ''}" style="height:${8 + 92 * (s - min) / (max - min || 1)}%" title="${i + 1}번: ${(s * 100).toFixed(1)}%"></div>`).join('');
   $('axis').innerHTML = [...Array(45).keys()].map(i => `<span>${i + 1}</span>`).join('');
 
-  $('games').innerHTML = '<p class="muted">게임 수를 고르고 ‘번호 뽑기’를 누르세요.</p>';
+  $('games').innerHTML = `<p class="muted">게임 수를 고르고 ‘번호 뽑기’를 누르세요. 사용 알고리즘: <b>${best.cand.name}</b></p>`;
   if (nextReal) $('games').innerHTML += `<p class="muted">실제 ${nextReal.e}회 번호: <span class="balls" style="display:inline-flex">${balls(nextReal.n, true)}</span></p>`;
 }
 
 function generate() {
-  const { score } = state.result;
+  const p = E.probs(state.best.c, state.baseIdx);
   const used = {};
   const nextReal = D[state.baseIdx + 1];
   const html = [];
   for (let g = 0; g < state.count; g++) {
-    const game = pickGame(score, used);
+    const game = pickGame(p, used);
     game.forEach(x => used[x] = (used[x] || 0) + 1);
     const hit = nextReal ? ` <span class="muted">(${game.filter(x => nextReal.n.includes(x)).length}개 일치)</span>` : '';
     html.push(`<div class="game"><span class="lbl">${'ABCDE'[g]}</span><span class="balls">${balls(game)}</span>${hit}</div>`);
   }
+  html.push(`<p class="muted">사용 알고리즘: ${state.best.cand.name} (직전 ${state.best.n}번 성적 1등)</p>`);
   $('games').innerHTML = html.join('');
 }
 
 function backtest() {
   $('btOut').innerHTML = '<p class="muted">계산 중…</p>';
   setTimeout(() => {
-    const start = 199, end = D.length - 1;
-    const dist = [0, 0, 0, 0, 0, 0, 0];
-    let hits = 0, n = 0;
-    for (let t = start; t < end; t++) {
-      const { score } = analyze(t, false);
-      const pick = topN(score, 6);
-      const h = pick.filter(x => D[t + 1].n.includes(x)).length;
-      dist[h]++; hits += h; n++;
-    }
-    const avg = hits / n;
+    const b = E.backtest(state.win, 199);
+    const byWin = WINS.map(w => ({ w, avg: w === state.win ? b.avg : E.backtest(w, 199).avg }));
+    const fixed = b.fixed.slice().sort((x, y) => y.avg - x.avg);
     $('btOut').innerHTML = `
       <div class="stats">
-        <div><div class="stat">${avg.toFixed(3)}개</div><div class="muted">이 방식 평균 일치</div></div>
+        <div><div class="stat">${b.avg.toFixed(3)}개</div><div class="muted">이 방식 평균 일치 (비교 ${state.win}번)</div></div>
         <div><div class="stat">0.800개</div><div class="muted">무작위로 찍었을 때 기대값</div></div>
-        <div><div class="stat">${n}회</div><div class="muted">검증한 회차 수</div></div>
+        <div><div class="stat">${b.n}회</div><div class="muted">검증한 회차 수</div></div>
       </div>
-      <p class="muted">일치 개수 분포: ${dist.map((c, k) => `${k}개 ${c}회`).filter((_, k) => dist[k] || k < 4).join(' · ')}</p>
-      <p class="muted">${Math.abs(avg - 0.8) < 0.06 ? '무작위와 사실상 같은 수준입니다. 추첨이 공정하다는 뜻이기도 해요.' : avg > 0.8 ? '무작위보다 약간 높지만, 이 정도 차이는 우연으로도 흔히 생깁니다.' : '무작위보다 약간 낮지만, 이 정도 차이는 우연으로도 흔히 생깁니다.'}</p>`;
+      <p class="muted">일치 개수 분포: ${b.dist.map((c, k) => `${k}개 ${c}회`).filter((_, k) => b.dist[k] || k < 4).join(' · ')}</p>
+      <p class="muted">비교 횟수별: ${byWin.map(x => `${x.w}번 ${x.avg.toFixed(3)}`).join(' · ')}</p>
+      <p class="muted">알고리즘 하나만 계속 썼다면: ${fixed.map(f => `${f.cand.name} ${f.avg.toFixed(3)}`).join(' · ')}</p>
+      <p class="muted">${Math.abs(b.avg - 0.8) < 0.06 ? '무작위와 사실상 같은 수준입니다. 추첨이 공정하다는 뜻이기도 해요.' : b.avg > 0.8 ? '무작위보다 약간 높지만, 이 정도 차이는 우연으로도 흔히 생깁니다.' : '무작위보다 약간 낮지만, 이 정도 차이는 우연으로도 흔히 생깁니다.'}</p>`;
   }, 30);
+}
+
+function seg(id, values, label, get, set) {
+  $(id).innerHTML = values.map(v => `<button data-v="${v}">${label(v)}</button>`).join('');
+  const sync = () => $(id).querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === get()));
+  $(id).addEventListener('click', e => { const v = +e.target.dataset.v; if (!v) return; set(v); sync(); });
+  sync();
 }
 
 function init() {
   const last = D[D.length - 1];
   $('dataInfo').textContent = `1회 ~ ${last.e}회 (${fmtDate(last.d)}) 데이터 기준`;
-  $('baseSel').innerHTML = D.slice(1).map((r, i) => `<option value="${i + 1}">${r.e}회</option>`).reverse().join('');
+  const firstIdx = E.MIN_HIST + 10;
+  $('baseSel').innerHTML = D.slice(firstIdx).map((r, i) => `<option value="${i + firstIdx}">${r.e}회</option>`).reverse().join('');
   $('baseSel').value = String(state.baseIdx);
   $('baseSel').addEventListener('change', e => { state.baseIdx = +e.target.value; render(); });
 
-  $('countSeg').innerHTML = [1, 2, 3, 4, 5].map(c => `<button data-c="${c}">${c}게임</button>`).join('');
   try { const c = +localStorage.getItem('lottoCount'); if (c >= 1 && c <= 5) state.count = c; } catch (e) {}
-  const syncSeg = () => $('countSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.c === state.count));
-  $('countSeg').addEventListener('click', e => {
-    const c = +e.target.dataset.c; if (!c) return;
-    state.count = c; syncSeg();
-    try { localStorage.setItem('lottoCount', c); } catch (e) {}
+  try { const w = +localStorage.getItem('lottoWin'); if (WINS.includes(w)) state.win = w; } catch (e) {}
+  seg('countSeg', [1, 2, 3, 4, 5], c => `${c}게임`, () => state.count, c => {
+    state.count = c; try { localStorage.setItem('lottoCount', c); } catch (e) {}
   });
-  syncSeg();
+  seg('winSeg', WINS, w => `${w}번`, () => state.win, w => {
+    state.win = w; try { localStorage.setItem('lottoWin', w); } catch (e) {}
+    $('btOut').innerHTML = ''; render();
+  });
 
   $('genBtn').addEventListener('click', generate);
   $('btBtn').addEventListener('click', backtest);
