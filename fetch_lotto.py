@@ -16,8 +16,19 @@ def fetch(epsd):
     out = subprocess.run(cmd, capture_output=True, check=True).stdout
     return json.loads(out)["data"]["list"]
 
+# 기존 CSV가 있으면 그 뒤 회차만 받는다 (서버 부담 줄이기)
 draws = {}
-epsd = 1
+if os.path.exists(out):
+    with open(out, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            d = {"ltEpsd": int(r["회차"]), "ltRflYmd": r["추첨일"].replace("-", ""),
+                 "bnsWnNo": int(r["보너스"]), "rnk1WnNope": int(r["1등당첨자수"]),
+                 "rnk1WnAmt": int(r["1등1인당금액"])}
+            for i in range(1, 7):
+                d[f"tm{i}WnNo"] = int(r[f"번호{i}"])
+            draws[d["ltEpsd"]] = d
+before = len(draws)
+epsd = max(draws) + 1 if draws else 1
 while True:
     lst = fetch(epsd)
     new = [d for d in lst if d["ltEpsd"] not in draws]
@@ -48,5 +59,5 @@ with open(js_path, "w", encoding="utf-8") as f:
 
 eps = [d["ltEpsd"] for d in rows]
 missing = sorted(set(range(1, max(eps) + 1)) - set(eps))
-print(f"{len(rows)} draws, {eps[0]}..{eps[-1]}, missing={missing[:20]}")
+print(f"{len(rows)} draws (+{len(rows) - before}), {eps[0]}..{eps[-1]}, missing={missing[:20]}")
 print("last:", rows[-1]["ltEpsd"], rows[-1]["ltRflYmd"], [rows[-1][f"tm{i}WnNo"] for i in range(1, 7)], rows[-1]["bnsWnNo"])
