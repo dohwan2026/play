@@ -54,7 +54,8 @@ with open(out, "w", newline="", encoding="utf-8-sig") as f:
 # 생성기(lotto_generator.html)가 읽는 데이터 파일
 js_path = os.path.join(os.path.dirname(os.path.abspath(out)), "lotto_data.js")
 data = [[d["ltEpsd"], d["ltRflYmd"], *[d[f"tm{i}WnNo"] for i in range(1, 7)], d["bnsWnNo"]] for d in rows]
-with open(js_path, "w", encoding="utf-8") as f:
+with open(js_path, "w", encoding="utf-8", newline="
+") as f:
     f.write("window.LOTTO = " + json.dumps(data, separators=(",", ":")) + ";\n")
 
 eps = [d["ltEpsd"] for d in rows]
