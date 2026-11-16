@@ -1,5 +1,5 @@
 // 네트워크 우선, 실패하면 캐시 (오프라인에서도 열리고, 온라인이면 최신 데이터 사용)
-const CACHE = 'lotto-v2';
+const CACHE = 'lotto-v3';
 const FILES = ['./', 'index.html', 'lotto_data.js', 'engine.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
