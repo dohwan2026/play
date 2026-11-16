@@ -85,6 +85,10 @@ select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); ba
 .toast.on { opacity: .92; }
 .dday { display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; margin: -8px 0 20px; font-size: .9rem; }
 .dday b { color: var(--accent); }
+.chk { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; cursor: pointer; }
+.chk input { width: 18px; height: 18px; accent-color: var(--accent); }
+.shape { font-size: .75rem; color: var(--muted); margin-left: auto; white-space: nowrap; }
+.game { flex-wrap: wrap; }
 .chart { display: grid; grid-template-columns: repeat(45, minmax(0, 1fr)); align-items: end; gap: 2px; height: 120px; }
 .chart div { background: var(--bar); border-radius: 2px 2px 0 0; min-height: 2px; }
 .chart div.top { background: var(--bar-top); }
@@ -118,6 +122,13 @@ details summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
       <div class="seg" id="countSeg" role="group" aria-label="게임 수"></div>
       <button class="btn" id="genBtn">번호 뽑기</button>
     </div>
+    <div class="row" style="margin-bottom:6px">
+      <span class="muted">게임 구성</span>
+      <div class="seg" id="mixSeg" role="group" aria-label="게임 구성"></div>
+    </div>
+    <p class="muted" id="mixNote" style="margin:0 0 10px"></p>
+    <label class="chk"><input type="checkbox" id="shapeChk"> 당첨번호 모양 필터</label>
+    <p class="muted" id="shapeNote" style="margin:0 0 10px"></p>
     <div id="games"><p class="muted">게임 수를 고르고 ‘번호 뽑기’를 누르세요.</p></div>
     <div class="acts" id="gameActs" hidden>
       <button class="btn ghost sm" id="saveBtn">내 번호에 저장</button>
@@ -161,9 +172,11 @@ details summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
   <details>
     <summary>계산 방식</summary>
     <p class="muted">
-      후보 알고리즘은 13개이고, 모두 기준 회차를 포함한 최근 최대 3개 회차를 입력으로 씁니다.
+      후보 알고리즘은 26개이고, 대부분 기준 회차를 포함한 최근 최대 3개 회차를 입력으로 씁니다.
       닮은 흐름(최근 1~3회와 닮았던 과거 구간의 다음 회차 번호), 재등장(최근 번호와 ±1 이웃),
-      쉬어간 번호(최근에 안 나온 번호), 번호 이동(역대 “이 번호 다음엔 저 번호” 횟수), 전체 빈도(비교용)입니다.
+      쉬어간 번호(최근에 안 나온 번호), 번호 이동(역대 “이 번호 다음엔 저 번호” 횟수),
+      끝수 흐름(최근에 많이 나온 끝자리), 구간 흐름(최근에 몰린 10단위 구간), 궁합 번호(역대 같은 회차에 함께 잘 나온 번호),
+      요즘 인기 번호(최근 10·30회 빈도), 출현 주기(평균 간격만큼 쉬어 나올 때가 된 번호), 거울 번호(46-번호), 전체 빈도(비교용)입니다.
     </p>
     <p class="muted">
       예를 들어 비교할 횟수가 2면, 기준이 4회일 때 각 알고리즘을 2회까지의 데이터로 돌려 3회를 맞혀 보고,
@@ -189,10 +202,45 @@ const ball = (n, sm) => `<span class="ball ${colorOf(n)}${sm ? ' sm' : ''}">${n}
 const balls = (ns, sm) => ns.map(n => ball(n, sm)).join('');
 const WINS = [1, 2, 3, 5, 10];
 
-function pickGame(p, used) {
-  const w = [...p].map((s, x) => x === 0 ? 0 : s * Math.pow(0.5, used[x] || 0));
-  const out = [];
-  for (let k = 0; k < 6; k++) {
+// ── 당첨번호 모양 필터 ──
+// 합 100~175, 홀수 2~4개, 1~22번 2~4개, 연속 번호 쌍 1개 이하, 끝자리 4종 이상, 한 10단위 구간에 3개 이하
+const SHAPE_RULES = '합 100~175 · 홀짝 2:4~4:2 · 저고 2:4~4:2 · 연속번호 1쌍 이하 · 끝자리 4종 이상 · 한 구간(10단위)에 3개 이하';
+function shapeOf(n) {
+  const s = [...n].sort((a, b) => a - b);
+  return {
+    sum: s.reduce((a, b) => a + b, 0),
+    odd: s.filter(x => x % 2).length,
+    low: s.filter(x => x <= 22).length,
+    cons: s.slice(1).filter((x, i) => x - s[i] === 1).length,
+    ends: new Set(s.map(x => x % 10)).size,
+    dec: Math.max(...[0, 1, 2, 3, 4].map(d => s.filter(x => Math.min(4, Math.floor((x - 1) / 10)) === d).length)),
+  };
+}
+function shapeOk(n) {
+  const f = shapeOf(n);
+  return f.sum >= 100 && f.sum <= 175 && f.odd >= 2 && f.odd <= 4 && f.low >= 2 && f.low <= 4
+    && f.cons <= 1 && f.ends >= 4 && f.dec <= 3;
+}
+const SHAPE_PASS = D.filter(r => shapeOk(r.n)).length / D.length;
+
+// 게임 구성: spread = 게임끼리 번호 안 겹침, basic = 덜 겹치게, focus = 공통 4개 + 게임마다 2개
+const MIXES = [
+  { v: 'spread', label: '분산', note: '5게임이 서로 다른 번호 30개를 나눠 가짐. 5게임 중 하나라도 3개 이상 맞을 확률이 가장 높음 (약 11.9%, 2게임 이상 동시 당첨 0.05%)' },
+  { v: 'basic', label: '기본', note: '앞 게임과 덜 겹치게만 조정 (하나라도 3개 이상 약 11.3%, 2게임 이상 동시 당첨 0.5%)' },
+  { v: 'focus', label: '집중', note: '공통 번호 4개 + 게임마다 다른 2개. 걸리는 일은 줄지만, 걸리면 여러 게임이 함께 걸림 (하나라도 3개 이상 약 7.9%, 2게임 이상 동시 당첨 2.2%)' },
+];
+function pickGame(p, used, core) {
+  const decay = state.mix === 'basic' ? 0.5 : 0; // 0이면 앞 게임 번호는 다시 안 나옴
+  const fixed = state.mix === 'focus' ? core : [];
+  const once = () => pickOne(p, used, decay, fixed);
+  if (!state.shape) return once();
+  for (let i = 0; i < 500; i++) { const g = once(); if (shapeOk(g)) return g; }
+  return once();
+}
+function pickOne(p, used, decay, fixed = []) {
+  const w = [...p].map((s, x) => x === 0 ? 0 : s * Math.pow(decay, used[x] || 0));
+  const out = [...fixed];
+  for (let k = out.length; k < 6; k++) {
     let sum = 0;
     for (let x = 1; x <= 45; x++) if (!out.includes(x)) sum += w[x];
     let r = Math.random() * sum;
@@ -206,7 +254,7 @@ function pickGame(p, used) {
   return out.sort((a, b) => a - b);
 }
 
-let state = { baseIdx: D.length - 1, count: 5, win: 3, best: null, games: null };
+let state = { baseIdx: D.length - 1, count: 5, win: 3, best: null, games: null, shape: true, mix: 'spread' };
 
 function render() {
   const base = D[state.baseIdx];
@@ -255,14 +303,18 @@ function generate() {
   const nextReal = D[state.baseIdx + 1];
   const html = [];
   state.games = [];
+  // 집중형 공통 번호 4개: 1등 알고리즘 확률로 6개를 뽑아 그중 4개
+  const core = state.mix === 'focus' ? pickOne(p, {}, 1).sort(() => Math.random() - 0.5).slice(0, 4) : [];
   for (let g = 0; g < state.count; g++) {
-    const game = pickGame(p, used);
+    const game = pickGame(p, used, core);
     state.games.push(game);
     game.forEach(x => used[x] = (used[x] || 0) + 1);
     const hit = nextReal ? ` <span class="muted">(${game.filter(x => nextReal.n.includes(x)).length}개 일치)</span>` : '';
-    html.push(`<div class="game"><span class="lbl">${'ABCDE'[g]}</span><span class="balls">${balls(game)}</span>${hit}</div>`);
+    const f = shapeOf(game);
+    html.push(`<div class="game"><span class="lbl">${'ABCDE'[g]}</span><span class="balls">${balls(game)}</span>${hit}<span class="shape">합 ${f.sum} · 홀${f.odd}:짝${6 - f.odd}</span></div>`);
   }
-  html.push(`<p class="muted">사용 알고리즘: ${state.best.cand.name} (직전 ${state.best.n}번 성적 1등)</p>`);
+  if (core.length && state.count > 1) html.push(`<p class="muted">공통 번호: <span class="balls" style="display:inline-flex">${balls(core.sort((a, b) => a - b), true)}</span></p>`);
+  html.push(`<p class="muted">사용 알고리즘: ${state.best.cand.name} (직전 ${state.best.n}번 성적 1등) · 구성: ${MIXES.find(m => m.v === state.mix).label}</p>`);
   $('games').innerHTML = html.join('');
   $('gameActs').hidden = false;
   $('saveBtn').hidden = !!nextReal; // 이미 추첨된 회차는 저장할 필요 없음
@@ -410,6 +462,25 @@ function init() {
   });
 
   $('genBtn').addEventListener('click', generate);
+  try { const m = localStorage.getItem('lottoMix'); if (MIXES.some(x => x.v === m)) state.mix = m; } catch (e) {}
+  $('mixSeg').innerHTML = MIXES.map(m => `<button data-m="${m.v}">${m.label}</button>`).join('');
+  const syncMix = () => {
+    $('mixSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.m === state.mix));
+    $('mixNote').textContent = MIXES.find(m => m.v === state.mix).note;
+  };
+  $('mixSeg').addEventListener('click', e => {
+    const m = e.target.dataset.m; if (!m) return;
+    state.mix = m; try { localStorage.setItem('lottoMix', m); } catch (err) {}
+    syncMix();
+  });
+  syncMix();
+  try { if (localStorage.getItem('lottoShape') === '0') state.shape = false; } catch (e) {}
+  $('shapeChk').checked = state.shape;
+  $('shapeNote').textContent = `${SHAPE_RULES}. 역대 당첨번호의 ${Math.round(SHAPE_PASS * 100)}%가 이 모양이고, 아무렇게나 고른 조합도 약 50%가 이 모양이라 당첨 확률은 그대로예요.`;
+  $('shapeChk').addEventListener('change', e => {
+    state.shape = e.target.checked;
+    try { localStorage.setItem('lottoShape', state.shape ? '1' : '0'); } catch (err) {}
+  });
   $('btBtn').addEventListener('click', backtest);
   $('saveBtn').addEventListener('click', saveGames);
   $('shareBtn').addEventListener('click', shareGames);

@@ -1,6 +1,7 @@
 // 로또 흐름 엔진: 후보 알고리즘 여러 개를 최근 회차에 적용해 보고,
 // 실제 다음 회차를 가장 잘 맞힌 알고리즘으로 새 회차 번호 점수를 낸다.
-// 모든 후보는 기준 회차를 포함한 최근 최대 3개 회차를 입력으로 쓴다.
+// 대부분의 후보는 기준 회차를 포함한 최근 최대 3개 회차를 입력으로 쓴다
+// (요즘 인기 번호·출현 주기·전체 빈도는 더 긴 기간을 본다).
 (function (root) {
   const MIN_HIST = 50; // 후보 성적을 매기기 시작하는 최소 회차 수
 
@@ -78,6 +79,63 @@
         return sc;
       });
     }
+    // ── 2차 추가 후보 ──
+    const DEC = x => Math.min(4, Math.floor((x - 1) / 10)); // 1~10, 11~20, 21~30, 31~40, 41~45
+    const DEC_SIZE = [10, 10, 10, 10, 5];
+    for (let k = 1; k <= 3; k++) {
+      add(`end${k}`, `끝수 흐름 ${k}회`, `최근 ${k}회에 많이 나온 끝자리(일의 자리)를 가진 번호`, t => {
+        const ld = new Float64Array(10);
+        for (let j = 0; j < k; j++) for (const x of nums[t - j]) ld[x % 10] += LAGW[j];
+        const sc = new Float64Array(46);
+        for (let x = 1; x <= 45; x++) sc[x] = 0.3 + ld[x % 10];
+        return sc;
+      });
+    }
+    for (let k = 1; k <= 3; k++) {
+      add(`dec${k}`, `구간 흐름 ${k}회`, `최근 ${k}회에 번호가 몰린 10단위 구간(1~10, 11~20 …)`, t => {
+        const dc = new Float64Array(5);
+        for (let j = 0; j < k; j++) for (const x of nums[t - j]) dc[DEC(x)] += LAGW[j];
+        const sc = new Float64Array(46);
+        for (let x = 1; x <= 45; x++) sc[x] = 0.3 + 10 * dc[DEC(x)] / DEC_SIZE[DEC(x)];
+        return sc;
+      });
+    }
+    for (let k = 1; k <= 3; k++) {
+      add(`co${k}`, `궁합 번호 ${k}회`, `역대 같은 회차에 함께 잘 나온 번호를 최근 ${k}회 번호 기준으로`, t => {
+        const sc = new Float64Array(46);
+        for (let j = 0; j < k; j++) for (const x of nums[t - j]) {
+          if (!freq[x]) continue;
+          for (let y = 1; y <= 45; y++) if (y !== x) sc[y] += LAGW[j] * co[x * 46 + y] / freq[x];
+        }
+        return sc;
+      });
+    }
+    for (const W of [10, 30]) {
+      add(`hot${W}`, `요즘 인기 번호 ${W}회`, `최근 ${W}회 동안 많이 나온 번호`, t => {
+        const sc = new Float64Array(46);
+        for (let i = Math.max(0, t - W + 1); i <= t; i++) for (const x of nums[i]) sc[x]++;
+        return sc;
+      });
+    }
+    add('cycle', '출현 주기', '번호마다 평균 출현 간격을 구해, 간격만큼 쉬어 “나올 때가 된” 번호', t => {
+      const sc = new Float64Array(46);
+      for (let x = 1; x <= 45; x++) {
+        if (freq[x] < 2) { sc[x] = 1; continue; }
+        const avgGap = (lastSeen[x] - firstSeen[x]) / (freq[x] - 1);
+        sc[x] = 0.3 + Math.min((t - lastSeen[x]) / avgGap, 3);
+      }
+      return sc;
+    });
+    add('mirror', '거울 번호', '직전 회차 번호를 뒤집은 번호(46-번호)와 그 ±1 이웃', t => {
+      const sc = new Float64Array(46);
+      for (const x of nums[t]) {
+        const m = 46 - x;
+        sc[m] += 1;
+        if (m > 1) sc[m - 1] += 0.4;
+        if (m < 45) sc[m + 1] += 0.4;
+      }
+      return sc;
+    });
     add('freq', '전체 빈도', '1회부터 지금까지 많이 나온 번호 (비교용 기준선)', null);
 
     const C = cands.length;
@@ -85,9 +143,12 @@
     const perf = new Float32Array(C * T).fill(NaN); // t 기준 예측이 t+1을 맞힌 기대 일치 개수
     const freq = new Float64Array(46);
     const lastSeen = new Int32Array(46).fill(-1);
+    const firstSeen = new Int32Array(46).fill(-1);
+    const co = new Float64Array(46 * 46); // 같은 회차 동반 출현 횟수
 
     for (let t = 0; t < T; t++) {
-      for (const x of nums[t]) { freq[x]++; lastSeen[x] = t; }
+      for (const x of nums[t]) { freq[x]++; lastSeen[x] = t; if (firstSeen[x] < 0) firstSeen[x] = t; }
+      for (const x of nums[t]) for (const y of nums[t]) if (x !== y) co[x * 46 + y]++;
       for (let L = 1; L <= 3; L++) { // t회를 도착점으로 하는 이동 기록 추가
         if (t - L < 0) continue;
         const Cm = trans[L - 1], R = transRow[L - 1];
