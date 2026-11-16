@@ -83,6 +83,8 @@ select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); ba
 .prize { font-weight: 700; color: var(--accent); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 20px; font-size: .9rem; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.on { opacity: .92; }
+.dday { display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; margin: -8px 0 20px; font-size: .9rem; }
+.dday b { color: var(--accent); }
 .chart { display: grid; grid-template-columns: repeat(45, minmax(0, 1fr)); align-items: end; gap: 2px; height: 120px; }
 .chart div { background: var(--bar); border-radius: 2px 2px 0 0; min-height: 2px; }
 .chart div.top { background: var(--bar-top); }
@@ -99,6 +101,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 <main>
   <h1>로또 흐름 생성기</h1>
   <p class="sub" id="dataInfo"></p>
+  <p class="dday" id="dday" hidden></p>
 
   <section class="card">
     <h2>기준 회차</h2>
@@ -265,6 +268,41 @@ function generate() {
   $('saveBtn').hidden = !!nextReal; // 이미 추첨된 회차는 저장할 필요 없음
 }
 
+// ── 다음 추첨 D-day (한국 시간 기준, 매주 토 20:35 추첨 · 20:00 판매 마감) ──
+const KST = 9 * 3600e3;
+const DAY = 86400e3;
+// e회 추첨 시각(UTC ms): 마지막 데이터 회차 날짜에서 주 단위로 계산
+function drawTime(e) {
+  const last = D[D.length - 1];
+  const base = Date.UTC(+last.d.slice(0, 4), +last.d.slice(4, 6) - 1, +last.d.slice(6)) + (20 * 60 + 35) * 60e3 - KST;
+  return base + (e - last.e) * 7 * DAY;
+}
+const kstDay = t => Math.floor((t + KST) / DAY); // 한국 날짜 번호
+function ddayOf(e, now = Date.now()) {
+  const t = drawTime(e);
+  if (now >= t) return { done: true };
+  const d = kstDay(t) - kstDay(now);
+  return { done: false, d, label: d === 0 ? 'D-DAY' : `D-${d}` };
+}
+function renderDday() {
+  const last = D[D.length - 1];
+  const now = Date.now();
+  let e = last.e + 1;
+  while (drawTime(e) <= now) e++;
+  const t = drawTime(e), dd = ddayOf(e, now);
+  const k = new Date(t + KST);
+  const when = `${k.getUTCMonth() + 1}.${k.getUTCDate()}(토) 20:35`;
+  let html = `<span>${e}회 추첨 <b>${dd.label}</b></span><span class="muted">${when}`;
+  if (dd.d === 0) {
+    const left = drawTime(e) - 35 * 60e3 - now; // 20:00 판매 마감
+    html += left > 0 ? ` · 판매 마감 20:00 (${Math.floor(left / 3600e3)}시간 ${Math.floor(left % 3600e3 / 60e3)}분 남음)` : ' · 판매 마감됨';
+  }
+  html += '</span>';
+  if (e > last.e + 1) html += `<span class="muted">${last.e + 1}회${e > last.e + 2 ? ` ~ ${e - 1}회` : ''} 결과는 반영 대기 중 (매주 일요일 오전 갱신)</span>`;
+  $('dday').innerHTML = html;
+  $('dday').hidden = false;
+}
+
 // ── 내 번호: 이 기기(localStorage)에만 저장 ──
 const MY_KEY = 'lottoMine';
 function loadMine() { try { return JSON.parse(localStorage.getItem(MY_KEY)) || []; } catch (e) { return []; } }
@@ -291,7 +329,9 @@ function renderMine() {
       return `<div class="game"><span class="lbl">${'ABCDE'[i]}</span><span class="balls">${g.map(x => `<span class="ball sm ${colorOf(x)}${draw.n.includes(x) ? '' : ' miss'}">${x}</span>`).join('')}</span>
         <span class="muted">${hit}개${pz ? ` · <span class="prize">${pz}</span>` : ''}</span></div>`;
     }).join('');
-    const head = draw ? `<span class="muted">${fmtDate(draw.d)} 추첨</span>` : `<span class="muted">추첨 전</span>`;
+    const dd = draw ? null : ddayOf(m.e);
+    const head = draw ? `<span class="muted">${fmtDate(draw.d)} 추첨</span>`
+      : `<span class="muted">${dd.done ? '추첨 끝 · 결과 반영 대기' : `추첨 ${dd.label}`}</span>`;
     const drawRow = draw ? `<div class="balls" style="margin-bottom:4px"><span class="muted" style="margin-right:4px">당첨</span>${balls(draw.n, true)}<span class="plus">+</span>${ball(draw.b, true)}</div>` : '';
     return `<div class="mybox"><div class="myhead"><b>${m.e}회</b>${head}<button class="del" data-id="${m.id}" aria-label="${m.e}회 저장 번호 삭제">삭제</button></div>
       ${drawRow}${rows}<p class="muted" style="margin:4px 0 0">${m.algo}</p></div>`;
@@ -381,6 +421,8 @@ function init() {
   });
   render();
   renderMine();
+  renderDday();
+  setInterval(renderDday, 60e3);
 }
 init();
 
