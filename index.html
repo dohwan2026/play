@@ -89,6 +89,9 @@ select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); ba
 .chk input { width: 18px; height: 18px; accent-color: var(--accent); }
 .shape { font-size: .75rem; color: var(--muted); margin-left: auto; white-space: nowrap; }
 .game { flex-wrap: wrap; }
+.odds { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.odds div { background: var(--bg); border-radius: 10px; padding: 8px 12px; }
+.odds b { font-size: 1.3rem; color: var(--accent); }
 .chart { display: grid; grid-template-columns: repeat(45, minmax(0, 1fr)); align-items: end; gap: 2px; height: 120px; }
 .chart div { background: var(--bar); border-radius: 2px 2px 0 0; min-height: 2px; }
 .chart div.top { background: var(--bar-top); }
@@ -118,9 +121,9 @@ details summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 
   <section class="card">
     <h2 id="genTitle">번호 생성</h2>
-    <div class="row" style="margin-bottom:12px">
+    <div class="row" style="margin-bottom:6px">
+      <span class="muted">게임 수</span>
       <div class="seg" id="countSeg" role="group" aria-label="게임 수"></div>
-      <button class="btn" id="genBtn">번호 뽑기</button>
     </div>
     <div class="row" style="margin-bottom:6px">
       <span class="muted">게임 구성</span>
@@ -129,6 +132,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
     <p class="muted" id="mixNote" style="margin:0 0 10px"></p>
     <label class="chk"><input type="checkbox" id="shapeChk"> 당첨번호 모양 필터</label>
     <p class="muted" id="shapeNote" style="margin:0 0 10px"></p>
+    <div class="odds" id="odds"></div>
+    <div class="row" style="margin:12px 0">
+      <button class="btn" id="genBtn">번호 뽑기</button>
+    </div>
     <div id="games"><p class="muted">게임 수를 고르고 ‘번호 뽑기’를 누르세요.</p></div>
     <div class="acts" id="gameActs" hidden>
       <button class="btn ghost sm" id="saveBtn">내 번호에 저장</button>
@@ -225,10 +232,23 @@ const SHAPE_PASS = D.filter(r => shapeOk(r.n)).length / D.length;
 
 // 게임 구성: spread = 게임끼리 번호 안 겹침, basic = 덜 겹치게, focus = 공통 4개 + 게임마다 2개
 const MIXES = [
-  { v: 'spread', label: '분산', note: '5게임이 서로 다른 번호 30개를 나눠 가짐. 5게임 중 하나라도 3개 이상 맞을 확률이 가장 높음 (약 11.9%, 2게임 이상 동시 당첨 0.05%)' },
-  { v: 'basic', label: '기본', note: '앞 게임과 덜 겹치게만 조정 (하나라도 3개 이상 약 11.3%, 2게임 이상 동시 당첨 0.5%)' },
-  { v: 'focus', label: '집중', note: '공통 번호 4개 + 게임마다 다른 2개. 걸리는 일은 줄지만, 걸리면 여러 게임이 함께 걸림 (하나라도 3개 이상 약 7.9%, 2게임 이상 동시 당첨 2.2%)' },
+  { v: 'spread', label: '분산', note: '게임끼리 번호가 하나도 안 겹침. 하나라도 맞을 확률이 가장 높고, 이론상 최대치에 거의 닿음 (7게임까지 가능)' },
+  { v: 'basic', label: '기본', note: '앞 게임과 덜 겹치게만 조정' },
+  { v: 'focus', label: '집중', note: '공통 번호 4개 + 게임마다 다른 2개. 걸리는 일은 줄지만, 걸리면 여러 게임이 함께 걸림' },
 ];
+// 게임 수별 [하나라도 3개 이상 %, 하나라도 4개 이상 %] — 분산·집중은 814만 개 조합 전수 계산, 기본은 100만 회 시뮬레이션
+const ODDS = {
+  spread: [[2.4, 0.14], [4.8, 0.28], [7.1, 0.42], [9.5, 0.56], [11.9, 0.70], [14.2, 0.84], [16.6, 0.98]],
+  basic: [[2.4, 0.14], [4.7, 0.28], [7.1, 0.42], [9.4, 0.56], [11.6, 0.69], [13.8, 0.83], [16.0, 0.97]],
+  focus: [[2.4, 0.14], [4.0, 0.26], [5.5, 0.38], [6.8, 0.48], [7.9, 0.59], [8.9, 0.68], [9.8, 0.77]],
+};
+function syncOdds() {
+  const [p3, p4] = ODDS[state.mix][state.count - 1];
+  const oneIn = p => `약 ${Math.round(100 / p)}주에 한 번`;
+  $('odds').innerHTML = `
+    <div><span class="muted">하나라도 3개 이상 (5등+)</span><br><b>${p3.toFixed(1)}%</b> <span class="muted">${oneIn(p3)}</span></div>
+    <div><span class="muted">하나라도 4개 이상 (4등+)</span><br><b>${p4.toFixed(2)}%</b> <span class="muted">${oneIn(p4)}</span></div>`;
+}
 function pickGame(p, used, core) {
   const decay = state.mix === 'basic' ? 0.5 : 0; // 0이면 앞 게임 번호는 다시 안 나옴
   const fixed = state.mix === 'focus' ? core : [];
@@ -311,7 +331,7 @@ function generate() {
     game.forEach(x => used[x] = (used[x] || 0) + 1);
     const hit = nextReal ? ` <span class="muted">(${game.filter(x => nextReal.n.includes(x)).length}개 일치)</span>` : '';
     const f = shapeOf(game);
-    html.push(`<div class="game"><span class="lbl">${'ABCDE'[g]}</span><span class="balls">${balls(game)}</span>${hit}<span class="shape">합 ${f.sum} · 홀${f.odd}:짝${6 - f.odd}</span></div>`);
+    html.push(`<div class="game"><span class="lbl">${'ABCDEFG'[g]}</span><span class="balls">${balls(game)}</span>${hit}<span class="shape">합 ${f.sum} · 홀${f.odd}:짝${6 - f.odd}</span></div>`);
   }
   if (core.length && state.count > 1) html.push(`<p class="muted">공통 번호: <span class="balls" style="display:inline-flex">${balls(core.sort((a, b) => a - b), true)}</span></p>`);
   html.push(`<p class="muted">사용 알고리즘: ${state.best.cand.name} (직전 ${state.best.n}번 성적 1등) · 구성: ${MIXES.find(m => m.v === state.mix).label}</p>`);
@@ -375,10 +395,10 @@ function renderMine() {
   $('mine').innerHTML = list.slice().reverse().map(m => {
     const draw = byEp.get(m.e);
     const rows = m.games.map((g, i) => {
-      if (!draw) return `<div class="game"><span class="lbl">${'ABCDE'[i]}</span><span class="balls">${balls(g, true)}</span></div>`;
+      if (!draw) return `<div class="game"><span class="lbl">${'ABCDEFG'[i]}</span><span class="balls">${balls(g, true)}</span></div>`;
       const hit = g.filter(x => draw.n.includes(x)).length;
       const pz = prizeOf(g, draw);
-      return `<div class="game"><span class="lbl">${'ABCDE'[i]}</span><span class="balls">${g.map(x => `<span class="ball sm ${colorOf(x)}${draw.n.includes(x) ? '' : ' miss'}">${x}</span>`).join('')}</span>
+      return `<div class="game"><span class="lbl">${'ABCDEFG'[i]}</span><span class="balls">${g.map(x => `<span class="ball sm ${colorOf(x)}${draw.n.includes(x) ? '' : ' miss'}">${x}</span>`).join('')}</span>
         <span class="muted">${hit}개${pz ? ` · <span class="prize">${pz}</span>` : ''}</span></div>`;
     }).join('');
     const dd = draw ? null : ddayOf(m.e);
@@ -404,7 +424,7 @@ async function shareGames() {
   if (!state.games) return;
   const e = D[state.baseIdx].e + 1;
   const text = `로또 ${e}회 (흐름 생성기 · ${state.best.cand.name})\n` +
-    state.games.map((g, i) => `${'ABCDE'[i]}  ${g.map(x => String(x).padStart(2, '0')).join(' ')}`).join('\n');
+    state.games.map((g, i) => `${'ABCDEFG'[i]}  ${g.map(x => String(x).padStart(2, '0')).join(' ')}`).join('\n');
   if (navigator.share) {
     try { await navigator.share({ text }); return; } catch (err) { if (err.name === 'AbortError') return; }
   }
@@ -451,10 +471,11 @@ function init() {
   $('baseSel').value = String(state.baseIdx);
   $('baseSel').addEventListener('change', e => { state.baseIdx = +e.target.value; render(); });
 
-  try { const c = +localStorage.getItem('lottoCount'); if (c >= 1 && c <= 5) state.count = c; } catch (e) {}
+  try { const c = +localStorage.getItem('lottoCount'); if (c >= 1 && c <= 7) state.count = c; } catch (e) {}
   try { const w = +localStorage.getItem('lottoWin'); if (WINS.includes(w)) state.win = w; } catch (e) {}
-  seg('countSeg', [1, 2, 3, 4, 5], c => `${c}게임`, () => state.count, c => {
+  seg('countSeg', [1, 2, 3, 4, 5, 6, 7], c => `${c}`, () => state.count, c => {
     state.count = c; try { localStorage.setItem('lottoCount', c); } catch (e) {}
+    syncOdds();
   });
   seg('winSeg', WINS, w => `${w}번`, () => state.win, w => {
     state.win = w; try { localStorage.setItem('lottoWin', w); } catch (e) {}
@@ -467,6 +488,7 @@ function init() {
   const syncMix = () => {
     $('mixSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.m === state.mix));
     $('mixNote').textContent = MIXES.find(m => m.v === state.mix).note;
+    syncOdds();
   };
   $('mixSeg').addEventListener('click', e => {
     const m = e.target.dataset.m; if (!m) return;
